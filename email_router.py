@@ -25,6 +25,7 @@ def get_db():
 # --------- UTILS ---------
 
 def html_to_text(html: str) -> str:
+    """Convierte HTML a texto plano con saltos de línea razonables."""
     if not html:
         return ""
     soup = BeautifulSoup(html, "html.parser")
@@ -41,7 +42,12 @@ def get_recent_emails(
     """
     Return last N emails from ServiceHub mailbox.
     Each email includes an ID and plain-text body.
-    If graph_client returns internetMessageId, we also expose it.
+
+    Fields:
+      - id: Graph message ID
+      - internetMessageId: global RFC822 ID (used for tracking / duplicates)
+      - inReplyTo: internetMessageId of the parent email (if it’s a reply)
+      - from, to, subject, bodyText
     """
     try:
         raw_messages = fetch_recent_messages(top=limit)
@@ -52,8 +58,8 @@ def get_recent_emails(
     for m in raw_messages:
         processed.append({
             "id": m.get("id"),
-            # 🔹 Opcional: si actualizas graph_client para incluirlo:
             "internetMessageId": m.get("internetMessageId"),
+            "inReplyTo": m.get("inReplyTo"),
             "from": m.get("from"),
             "to": m.get("to", []),
             "subject": m.get("subject"),
@@ -77,10 +83,10 @@ def was_processed(
     """
     sql = text("""
         SELECT 
-            fldQuoteID   AS quoteId,
-            fldQuoteNo   AS quoteNo,
+            fldQuoteID    AS quoteId,
+            fldQuoteNo    AS quoteNo,
             fldCustomerID AS customerId,
-            fldAssetID   AS assetId
+            fldAssetID    AS assetId
         FROM tblEmailQuoteTracking
         WHERE InternetMessageID = :imid
     """)
@@ -110,6 +116,19 @@ def track_email(
     """
     Store that an email (InternetMessageID) has been processed and
     linked to a quote. GPT should call this AFTER a quote is created.
+
+    Expected JSON:
+    {
+      "internetMessageId": "...",   # REQUIRED
+      "forwardedEmailId": "...",    # optional
+      "subject": "...",
+      "from": "sender@domain.com",
+      "customerId": 123,
+      "assetId": 456,
+      "quoteId": 789,
+      "quoteNo": "AUK25Q419935",
+      "notes": "Created quote for ..."
+    }
     """
     # Validación mínima
     if not data.get("internetMessageId"):
@@ -156,3 +175,4 @@ def track_email(
 
     db.commit()
     return {"ok": True}
+

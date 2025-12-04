@@ -15,6 +15,7 @@ SCOPE = ["https://graph.microsoft.com/.default"]
 
 
 def get_token() -> str:
+    """Authenticate using Microsoft identity platform and return an access token."""
     app = msal.ConfidentialClientApplication(
         CLIENT_ID,
         authority=AUTHORITY,
@@ -27,11 +28,11 @@ def get_token() -> str:
 
 
 def fetch_recent_messages(top: int = 5):
-    """Lee los últimos N correos del buzón de ServiceHub."""
+    """Fetch the last N emails from the ServiceHub mailbox, including full body and header metadata."""
     token = get_token()
     headers = {"Authorization": f"Bearer {token}"}
 
-    # Solo metadata primero
+    # First request: metadata only, ordered by date
     url = (
         f"https://graph.microsoft.com/v1.0/users/{MAILBOX}/messages"
         f"?$top={top}&$orderby=receivedDateTime desc"
@@ -42,14 +43,12 @@ def fetch_recent_messages(top: int = 5):
     data = resp.json()
 
     messages = []
+
     for m in data.get("value", []):
         msg_id = m["id"]
 
-        # Pedimos el body completo
-        full_url = (
-            f"https://graph.microsoft.com/v1.0/users/"
-            f"{MAILBOX}/messages/{msg_id}"
-        )
+        # Second request: fetch full message body + headers
+        full_url = f"https://graph.microsoft.com/v1.0/users/{MAILBOX}/messages/{msg_id}"
         full_resp = requests.get(full_url, headers=headers)
         full_resp.raise_for_status()
         full = full_resp.json()
@@ -58,8 +57,8 @@ def fetch_recent_messages(top: int = 5):
 
         messages.append({
             "id": msg_id,
-            # 👇 NUEVO: identificador único estilo RFC822
-            "internetMessageId": full.get("internetMessageId"),
+            "internetMessageId": full.get("internetMessageId"),  # RFC822 ID
+            "inReplyTo": full.get("inReplyTo"),                  # 🔥 helps detect replies / updates
             "from": full.get("from", {}).get("emailAddress", {}).get("address"),
             "subject": full.get("subject"),
             "body_html": body_html,
@@ -71,10 +70,10 @@ def fetch_recent_messages(top: int = 5):
 
 
 # -----------------------------
-# TEST BLOCK
+# TEST BLOCK (run manually)
 # -----------------------------
 if __name__ == "__main__":
-    print("Testing email fetch...\n")
+    print("\nTesting email fetch...\n")
 
     try:
         msgs = fetch_recent_messages(5)
@@ -84,6 +83,7 @@ if __name__ == "__main__":
             print(f"--- Message {i} ---")
             print(f"ID: {m['id']}")
             print(f"InternetMessageID: {m.get('internetMessageId')}")
+            print(f"InReplyTo: {m.get('inReplyTo')}")
             print(f"From: {m['from']}")
             print(f"To: {', '.join(m['to'])}")
             print(f"Subject: {m['subject']}")
@@ -94,3 +94,4 @@ if __name__ == "__main__":
     except Exception as err:
         print("❌ ERROR while fetching messages:")
         print(err)
+
